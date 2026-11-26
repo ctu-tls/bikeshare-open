@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from sklearn.metrics import r2_score
 
-from src.config import LAG_WARMUP, TARGET
+from src.config import FORBIDDEN, LAG_WARMUP, RAW, RAW_CATEGORICAL_COLS, TARGET
 from src.features import build_features, feature_columns, reindex_to_calendar
 from src.ingest import load_raw
 from src.train import MODELS, temporal_split
@@ -17,6 +17,16 @@ def raw():
 @pytest.fixture(scope="module")
 def feats(raw):
     return build_features(raw)
+
+
+def test_every_raw_column_is_classified(feats):
+    """Every column in the raw CSV must be accounted for: forbidden, a model
+    feature, a raw categorical encoder input, or the date key. A new column
+    in the mirror must be classified deliberately, not ignored by accident."""
+    raw_cols = set(pd.read_csv(RAW, nrows=0).columns)
+    classified = FORBIDDEN | set(feature_columns(feats)) | RAW_CATEGORICAL_COLS | {"dteday"}
+    unclassified = sorted(raw_cols - classified)
+    assert not unclassified, f"unclassified raw columns: {unclassified}"
 
 
 def test_calendar_is_complete_before_lagging(raw):

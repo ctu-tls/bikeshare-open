@@ -45,6 +45,17 @@ UNVERIFIED_COLS = {"cnt_2d_bfr"}
 # What feature_columns() and the tests actually enforce.
 FORBIDDEN = LEAKAGE_COLS | TIME_INDEX_COLS | UNVERIFIED_COLS
 
+# 4. Raw categoricals: string labels never fed to the model directly; they are
+#    either encoder inputs or restatements of dteday-derived features.
+RAW_CATEGORICAL_COLS = {
+    "holiday",  # -> is_holiday
+    "workday",  # -> is_workday
+    "weather",  # -> weather_severity (encode_weather)
+    "weekday",  # superseded by dayofweek, derived from dteday
+    "mnth",     # superseded by month_sin / month_cos, derived from dteday
+    "season",   # coarser restatement of month; month_sin / month_cos cover it
+}
+
 # Temporal split: train on 2011, validate on H1 2012, test on H2 2012.
 TRAIN_END = "2011-12-31"
 VALID_END = "2012-06-30"
