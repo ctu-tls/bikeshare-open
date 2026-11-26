@@ -88,3 +88,73 @@ Final `make test`:
 ```
 16 passed in 1.06s
 ```
+
+## Fault 2: shift(1) removed from cnt_roll_7
+
+Edit to `src/features.py`, in `build_features()`:
+
+```diff
+-    out["cnt_roll_7"] = out[TARGET].shift(1).rolling(LAG_WARMUP).mean()
++    out["cnt_roll_7"] = out[TARGET].rolling(LAG_WARMUP).mean()
+```
+
+PostToolUse hook stderr (`.claude/hooks/check_leakage.sh`):
+
+```
+[${CLAUDE_PROJECT_DIR}/.claude/hooks/check_leakage.sh]: Leakage tests failed after editing /Users/claire/dsc180/bikeshare-open/src/features.py:
+[714 rows x 29 columns]
+
+    def test_rolling_mean_excludes_today(feats):
+        """cnt_roll_7 must be the mean of the 7 calendar days *before* today."""
+        by_date = feats.set_index("dteday")[TARGET]
+        date = feats.dteday.iloc[200]
+        window = [date - pd.Timedelta(days=k) for k in range(1, 8)]
+        if all(d in by_date.index for d in window):
+            expected = sum(by_date[d] for d in window) / 7
+>           assert feats.set_index("dteday").cnt_roll_7[date] == pytest.approx(expected)
+E           assert np.float64(4389.0) == 4414.857142857143 ± 0.00441486
+E             
+E             comparison failed
+E             Obtained: 4389.0
+E             Expected: 4414.857142857143 ± 0.00441486
+
+tests/test_leakage.py:58: AssertionError
+=================================================================== short test summary info ====================================================================
+FAILED tests/test_leakage.py::test_rolling_mean_excludes_today - assert np.float64(4389.0) == 4414.857142857143 ± 0.00441486
+1 failed, 7 passed in 0.61s
+```
+
+`python -m pytest tests/ -q 2>&1 | tail -15`:
+
+```
+        date = feats.dteday.iloc[200]
+        window = [date - pd.Timedelta(days=k) for k in range(1, 8)]
+        if all(d in by_date.index for d in window):
+            expected = sum(by_date[d] for d in window) / 7
+>           assert feats.set_index("dteday").cnt_roll_7[date] == pytest.approx(expected)
+E           assert np.float64(4389.0) == 4414.857142857143 ± 0.00441486
+E             
+E             comparison failed
+E             Obtained: 4389.0
+E             Expected: 4414.857142857143 ± 0.00441486
+
+tests/test_leakage.py:58: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_rolling_mean_excludes_today - assert np.fl...
+1 failed, 15 passed in 1.37s
+```
+
+Fix (reverts the fault; `src/features.py` matches the last commit again):
+
+```diff
+-    out["cnt_roll_7"] = out[TARGET].rolling(LAG_WARMUP).mean()
++    out["cnt_roll_7"] = out[TARGET].shift(1).rolling(LAG_WARMUP).mean()
+```
+
+Turns to fix: 1 (the "fix" request).
+
+Final `make test`:
+
+```
+16 passed in 1.31s
+```
