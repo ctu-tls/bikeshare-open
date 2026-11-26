@@ -4,6 +4,7 @@ test_no_forbidden_features is the single most valuable test in this repo:
 casual + registered == cnt exactly, so any model handed those columns
 scores R^2 = 1.0 and looks brilliant while having learned nothing.
 """
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -55,6 +56,36 @@ def test_rolling_mean_excludes_today(feats):
     if all(d in by_date.index for d in window):
         expected = sum(by_date[d] for d in window) / 7
         assert feats.set_index("dteday").cnt_roll_7[date] == pytest.approx(expected)
+
+
+def test_cnt_roll_7_std_value_on_known_date():
+    """Test that cnt_roll_7_std exists and has the correct value on 2011-06-15."""
+    feats = build_features(load_raw())
+    target_date = pd.Timestamp("2011-06-15")
+
+    # Find the row for this date (accounting for gaps)
+    idx = feats[feats.dteday == target_date].index
+    if len(idx) != 1:
+        pytest.fail(f"Expected exactly one row for 2011-06-15, found {len(idx)}")
+
+    row = feats.loc[idx[0]]
+
+    # Hand-compute: mean of cnt over the 7 calendar days before 2011-06-15
+    by_date = feats.set_index("dteday")[TARGET]
+    window_dates = [target_date - pd.Timedelta(days=k) for k in range(1, 8)]
+
+    if all(d in by_date.index for d in window_dates):
+        expected_std = np.std([by_date[d] for d in window_dates], ddof=1)
+
+        # Assert that cnt_roll_7_std exists and matches hand-computed value
+        assert hasattr(row, "cnt_roll_7_std"), "Feature 'cnt_roll_7_std' not found in feature set"
+        actual_std = row.cnt_roll_7_std
+        assert actual_std == pytest.approx(expected_std), (
+            f"On {target_date.date()}, cnt_roll_7_std={actual_std:.4f} but expected "
+            f"{expected_std:.4f}"
+        )
+    else:
+        pytest.fail(f"Could not compute expected value: missing dates in window for 2011-06-15")
 
 
 def test_no_missing_values(feats):
