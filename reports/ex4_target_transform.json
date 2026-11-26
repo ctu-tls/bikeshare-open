@@ -1,0 +1,73 @@
+{
+  "model": "hgb",
+  "hgb_params": {
+    "categorical_features": "from_dtype",
+    "early_stopping": "auto",
+    "interaction_cst": null,
+    "l2_regularization": 0.0,
+    "learning_rate": 0.1,
+    "loss": "squared_error",
+    "max_bins": 255,
+    "max_depth": null,
+    "max_features": 1.0,
+    "max_iter": 300,
+    "max_leaf_nodes": 31,
+    "min_samples_leaf": 20,
+    "monotonic_cst": null,
+    "n_iter_no_change": 10,
+    "quantile": null,
+    "random_state": 0,
+    "scoring": "loss",
+    "tol": 1e-07,
+    "validation_fraction": 0.1,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "n_features": 15,
+  "features": [
+    "temp",
+    "atemp",
+    "hum",
+    "windspeed",
+    "dayofweek",
+    "is_weekend",
+    "is_holiday",
+    "is_workday",
+    "month_sin",
+    "month_cos",
+    "weather_severity",
+    "cnt_lag_1",
+    "cnt_lag_7",
+    "cnt_roll_7",
+    "cnt_roll_7_std"
+  ],
+  "n_train": 348,
+  "n_valid": 182,
+  "n_test": 184,
+  "valid": {
+    "raw": {
+      "r2": 0.0977,
+      "mae": 1381.6
+    },
+    "log1p": {
+      "r2": -0.0282,
+      "mae": 1493.3
+    },
+    "delta": {
+      "r2": 0.5642,
+      "mae": 885.8
+    },
+    "ratio": {
+      "r2": 0.7483,
+      "mae": 685.5
+    }
+  },
+  "selected_on_valid": "ratio",
+  "test_selected_only": {
+    "ratio": {
+      "r2": 0.628,
+      "mae": 832.8
+    }
+  },
+  "test_touched": 1
+}
