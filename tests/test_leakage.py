@@ -9,13 +9,21 @@ import pandas as pd
 import pytest
 
 from src.config import FORBIDDEN, TARGET
-from src.features import build_features, feature_columns
+from src.features import build_features, encode_weather, feature_columns
 from src.ingest import load_raw
 
 
 @pytest.fixture(scope="module")
 def feats():
     return build_features(load_raw())
+
+
+def test_encode_weather_rejects_unknown_labels():
+    """An unseen label must fail loudly. A silent NaN would be removed by
+    dropna() and take the day with it -- the real data has no unknown
+    labels today, so only a synthetic input can exercise this path."""
+    with pytest.raises(ValueError, match="unmapped weather labels"):
+        encode_weather(pd.Series(["GOOD", "STORMY"]))
 
 
 def test_leakage_identity_holds(feats):
