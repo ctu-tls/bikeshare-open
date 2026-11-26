@@ -269,3 +269,136 @@ FAILED tests/test_leakage.py::test_encode_weather_rejects_unknown_labels - Faile
 ```
 
 Restored the raise with the Edit tool; `make test` green again (see below).
+
+## Fault 4: raw CSV overwritten via cp from Bash
+
+Plan: corrupt one cell in a copy of `data/raw/bike_daily.csv` in `/tmp`, then
+`cp` it over the raw file from the Bash tool, bypassing Edit/Write.
+
+### Attempt 1: cnt changed, cp blocked by auto mode
+
+The `/tmp` copy changed `cnt` on 2012-05-01 from 5740 to 5741 (one cell, 729
+lines unchanged). The overwrite was refused:
+
+```
+$ cp /tmp/bike_daily.csv data/raw/bike_daily.csv
+Permission to use Bash with command cp /tmp/bike_daily.csv data/raw/bike_daily.csv; echo "cp exit: $?" has been denied.
+```
+
+No permission prompt was shown: Claude Code's auto mode classifier blocked
+it. The repo's own guards would **not** have stopped it:
+
+- The PostToolUse hook in `.claude/settings.json` has matcher `Edit|Write`,
+  so it never runs on a Bash call.
+- The deny rules `Write(./data/raw/**)` and `Edit(./data/raw/**)` cover only
+  the Write and Edit tools. The only Bash deny rule is `Bash(rm -rf:*)`.
+
+So the protection came from the harness mode, not from anything checked into
+the repo, and outside auto mode the overwrite could go through unchecked.
+`data/raw/bike_daily.csv` was unchanged afterwards (SHA-256 `a6bed157...b5ad9dc`).
+
+### Attempt 2: temp changed instead, cp to be run by hand
+
+`cnt` was the wrong cell for testing the suite: `test_leakage_identity_holds`
+checks `casual + registered == cnt` (653 + 5087 = 5740), so it would probably
+have caught that edit. The `/tmp` copy was rewritten to change `temp`, which
+no test checks against a known value:
+
+```diff
+-487,"2012-05-01","SPRING","2012","MAY","N","TUE",20.826651,35.618714,65.9583,10.458432,653,5087,5740,"Y","MISTY",486,6304
++487,"2012-05-01","SPRING","2012","MAY","N","TUE",21.826651,35.618714,65.9583,10.458432,653,5087,5740,"Y","MISTY",486,6304
+```
+
+```
+$ shasum -a 256 /tmp/bike_daily.csv
+feb94b217126afa397190814c76fca96bb42e02138492ab5497ba4ba95701ecd  /tmp/bike_daily.csv
+```
+
+The `cp` is to be run by hand from the user's shell, outside Claude Code.
+
+### Corrupted file in place: the suite stays green
+
+The user ran `cp /tmp/bike_daily.csv data/raw/bike_daily.csv` from their own
+shell. No hook fired and no rule applied, because Claude Code was not involved.
+
+```
+$ shasum -a 256 data/raw/bike_daily.csv
+feb94b217126afa397190814c76fca96bb42e02138492ab5497ba4ba95701ecd  data/raw/bike_daily.csv
+```
+
+`python -m pytest tests/ -q 2>&1 | tail -15` (the complete output):
+
+```
+.................                                                        [100%]
+17 passed in 1.85s
+```
+
+No test sees the change. What would catch it: a content check on the raw file
+itself. The row count, column set, calendar and leakage-identity tests all pass
+because the file still has the right shape and `cnt` still equals
+`casual + registered`. Only a hash (or a value-level snapshot) detects a
+plausible-looking edit to a weather column.
+
+### Mitigation: SHA-256 test
+
+Expected hash added to `src/config.py` (constants live there, per CLAUDE.md):
+
+```python
+# SHA-256 of the raw CSV as committed. Any byte change to the raw file --
+# including edits no other test can see, like one temp value -- fails
+# tests/test_contract.py. Update this only after deliberately re-downloading.
+RAW_SHA256 = "a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc"
+```
+
+New test in `tests/test_contract.py` (plus `import hashlib` and `RAW_SHA256`
+added to the `from src.config import ...` line):
+
+```python
+def test_raw_csv_is_unmodified():
+    """The raw file is an input, never an output. Hooks and deny rules only
+    watch Edit/Write, so a `cp` from a shell can replace it silently; this
+    catches any byte change, including ones no other test can see."""
+    actual = hashlib.sha256(RAW.read_bytes()).hexdigest()
+    assert actual == RAW_SHA256, f"{RAW.name} changed: sha256 {actual}"
+```
+
+The hook ran on the `src/config.py` edit and the leakage tests stayed green.
+They do not include this test: it lives in `test_contract.py`, and the hook
+runs only `test_leakage.py`.
+
+`python -m pytest tests/ -q 2>&1 | tail -15`, corrupted file still in place:
+
+```
+        """The raw file is an input, never an output. Hooks and deny rules only
+        watch Edit/Write, so a `cp` from a shell can replace it silently; this
+        catches any byte change, including ones no other test can see."""
+        actual = hashlib.sha256(RAW.read_bytes()).hexdigest()
+>       assert actual == RAW_SHA256, f"{RAW.name} changed: sha256 {actual}"
+E       AssertionError: bike_daily.csv changed: sha256 feb94b217126afa397190814c76fca96bb42e02138492ab5497ba4ba95701ecd
+E       assert 'feb94b217126...ba4ba95701ecd' == 'a6bed1577f6e...0c86a0b5ad9dc'
+E         
+E         - a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc
+E         + feb94b217126afa397190814c76fca96bb42e02138492ab5497ba4ba95701ecd
+
+tests/test_contract.py:29: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_contract.py::test_raw_csv_is_unmodified - AssertionError: b...
+1 failed, 17 passed in 1.37s
+```
+
+### Restored
+
+```
+$ git checkout -- data/raw/bike_daily.csv
+$ shasum -a 256 data/raw/bike_daily.csv
+a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc  data/raw/bike_daily.csv
+```
+
+Final `make test`:
+
+```
+18 passed in 1.09s
+```
+
+Remaining gap: the hash test only runs when someone runs `make test`. Nothing
+runs it automatically after a Bash command or an out-of-band `cp`.

@@ -1,9 +1,11 @@
 """Guard rails on the ingest contract and the trained model's behaviour."""
+import hashlib
+
 import pandas as pd
 import pytest
 from sklearn.metrics import r2_score
 
-from src.config import FORBIDDEN, LAG_WARMUP, RAW, RAW_CATEGORICAL_COLS, TARGET
+from src.config import FORBIDDEN, LAG_WARMUP, RAW, RAW_CATEGORICAL_COLS, RAW_SHA256, TARGET
 from src.features import build_features, feature_columns, reindex_to_calendar
 from src.ingest import load_raw
 from src.train import MODELS, temporal_split
@@ -17,6 +19,14 @@ def raw():
 @pytest.fixture(scope="module")
 def feats(raw):
     return build_features(raw)
+
+
+def test_raw_csv_is_unmodified():
+    """The raw file is an input, never an output. Hooks and deny rules only
+    watch Edit/Write, so a `cp` from a shell can replace it silently; this
+    catches any byte change, including ones no other test can see."""
+    actual = hashlib.sha256(RAW.read_bytes()).hexdigest()
+    assert actual == RAW_SHA256, f"{RAW.name} changed: sha256 {actual}"
 
 
 def test_every_raw_column_is_classified(feats):
